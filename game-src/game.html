@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Elebeast: Jungle Dash</title>
+<!-- Solana web3.js via CDN (IIFE build). Dipakai untuk baca saldo EBT on-chain (read-only). -->
+<script src="https://unpkg.com/@solana/web3.js@1/lib/index.iife.min.js"></script>
+<style>
+  /* ====== Layout dasar ====== */
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; background:#0b1a10;
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif; color:#fff;
+    touch-action:none; user-select:none; -webkit-user-select:none; }
+  #game-wrap { position:relative; width:100vw; height:100vh; max-width:100%; max-height:100%;
+    margin:0 auto; overflow:hidden; background:#123; }
+  #game-canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+
+  /* ====== Layar overlay ====== */
+  .screen { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:12px; padding:20px; z-index:10;
+    background:rgba(5,15,8,.82); backdrop-filter:blur(3px); text-align:center; }
+  .hidden { display:none !important; }
+
+  h1.title { font-size:clamp(2rem,8vw,4rem); letter-spacing:2px; color:#ffd23f;
+    text-shadow:0 3px 0 #7a4a00, 0 6px 18px rgba(0,0,0,.6); }
+  .subtitle { font-size:clamp(.9rem,3.5vw,1.2rem); color:#bfe3c0; }
+  #hero-img { width:min(72vw,420px); border-radius:16px; border:3px solid #ffd23f;
+    box-shadow:0 8px 30px rgba(0,0,0,.5); }
+
+  .btn { font-size:clamp(1.05rem,4.5vw,1.4rem); font-weight:700; color:#3a2200;
+    background:linear-gradient(#ffe27a,#ffb52e); border:none; border-radius:14px;
+    padding:14px 38px; min-width:min(78vw,300px); cursor:pointer;
+    box-shadow:0 4px 0 #8a5a00, 0 6px 14px rgba(0,0,0,.4); transition:transform .08s; }
+  .btn:active { transform:translateY(3px); box-shadow:0 1px 0 #8a5a00; }
+  .btn.secondary { background:linear-gradient(#b9e6bb,#6fbf73); color:#0c2f10;
+    box-shadow:0 4px 0 #2f6b33, 0 6px 14px rgba(0,0,0,.4); }
+  .btn:disabled { filter:grayscale(.8); opacity:.55; cursor:not-allowed; }
+
+  .balance-chip { background:rgba(0,0,0,.5); border:2px solid #ffd23f; border-radius:999px;
+    padding:8px 20px; font-size:clamp(1rem,4vw,1.25rem); font-weight:700; color:#ffd23f; }
+  .hint { color:#9dbfa0; font-size:.9rem; max-width:520px; line-height:1.5; }
+
+  /* ====== HUD ====== */
+  #hud { position:absolute; top:0; left:0; right:0; z-index:5; display:flex;
+    justify-content:space-between; align-items:flex-start; padding:10px 12px; pointer-events:none; }
+  #hud .stats { display:flex; gap:10px; }
+  .stat { background:rgba(0,0,0,.55); border-radius:10px; padding:6px 14px;
+    font-weight:700; font-size:clamp(.9rem,3.6vw,1.1rem); color:#fff; }
+  .stat.ebt { color:#ffd23f; border:1px solid #ffd23f66; }
+  #hud .controls { display:flex; gap:8px; pointer-events:auto; }
+  .icon-btn { width:48px; height:48px; font-size:1.4rem; border-radius:12px; border:none;
+    background:rgba(0,0,0,.55); color:#fff; cursor:pointer; }
+  #duck-btn { position:absolute; right:14px; bottom:18px; z-index:6; width:84px; height:84px;
+    border-radius:50%; font-size:2rem; border:3px solid #fff8; background:rgba(0,0,0,.45);
+    color:#fff; display:none; }
+  body.playing.touch #duck-btn { display:block; }
+
+  /* ====== Toko & Dompet ====== */
+  .card-list { width:min(92vw,480px); display:flex; flex-direction:column; gap:10px;
+    max-height:52vh; overflow-y:auto; padding:4px; }
+  .shop-item { background:rgba(255,255,255,.07); border:2px solid #2f6b33; border-radius:12px;
+    padding:12px 14px; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .shop-item .info { text-align:left; }
+  .shop-item .info b { color:#ffd23f; font-size:1.05rem; }
+  .shop-item .info p { color:#cfe6d0; font-size:.85rem; margin-top:2px; }
+  .mini-btn { font-size:.95rem; font-weight:700; padding:10px 16px; border-radius:10px; border:none;
+    cursor:pointer; background:linear-gradient(#ffe27a,#ffb52e); color:#3a2200; white-space:nowrap; }
+  .mini-btn.owned { background:#2f6b33; color:#fff; }
+  .addr { font-family:monospace; background:rgba(0,0,0,.5); padding:8px 14px; border-radius:10px;
+    color:#7df9ff; word-break:break-all; }
+  a.explorer { color:#7df9ff; font-size:.9rem; }
+  .warn { color:#ffb3b3; font-size:.85rem; max-width:520px; line-height:1.5; }
+</style>
+</head>
+<body>
+<div id="game-wrap">
+  <canvas id="game-canvas"></canvas>
+
+  <!-- HUD saat bermain -->
+  <div id="hud" class="hidden">
+    <div class="stats">
+      <div class="stat" id="hud-score">0 m</div>
+      <div class="stat ebt" id="hud-ebt">🪙 0 EBT</div>
+      <div class="stat hidden" id="hud-shield">🛡️</div>
+    </div>
+    <div class="controls">
+      <button class="icon-btn" id="pause-btn" title="Jeda">⏸️</button>
+      <button class="icon-btn" id="mute-btn" title="Bisukan">🔊</button>
+    </div>
+  </div>
+  <button id="duck-btn" title="Menunduk">⬇️</button>
+
+  <!-- MENU UTAMA -->
+  <div id="menu" class="screen">
+    <img id="hero-img" src="assets/hero.png" alt="Elebeast hero art">
+    <h1 class="title">ELEBEAST</h1>
+    <div class="subtitle">🐘 Jungle Dash — lari secepat mungkin, kumpulkan EBT!</div>
+    <div class="balance-chip" id="menu-balance">🪙 0 EBT</div>
+    <div class="balance-chip" id="menu-high" style="border-color:#6fbf73;color:#b9e6bb">🏆 Rekor: 0 m</div>
+    <button class="btn" id="play-btn">▶ Main</button>
+    <button class="btn secondary" id="shop-btn">🛒 Toko</button>
+    <button class="btn secondary" id="wallet-btn">👛 Dompet</button>
+    <p class="hint">Ketuk / klik / tekan SPASI untuk lompat (bisa lompat 2x).<br>
+    Panah BAWAH / tombol ⬇️ untuk menunduk menghindari burung.</p>
+  </div>
+
+  <!-- GAME OVER -->
+  <div id="over" class="screen hidden">
+    <h1 class="title" style="color:#ff6b6b">GAME OVER</h1>
+    <div class="balance-chip" id="over-score">🏃 0 m</div>
+    <div class="balance-chip" id="over-ebt">🪙 +0 EBT</div>
+    <p class="hint" id="over-detail"></p>
+    <button class="btn" id="retry-btn">🔁 Main Lagi</button>
+    <button class="btn secondary" id="over-menu-btn">🏠 Menu</button>
+  </div>
+
+  <!-- PAUSE -->
+  <div id="pause" class="screen hidden">
+    <h1 class="title">⏸️ JEDA</h1>
+    <button class="btn" id="resume-btn">▶ Lanjut</button>
+    <button class="btn secondary" id="pause-menu-btn">🏠 Menu</button>
+  </div>
+
+  <!-- TOKO -->
+  <div id="shop" class="screen hidden">
+    <h1 class="title" style="font-size:clamp(1.5rem,6vw,2.5rem)">🛒 TOKO</h1>
+    <div class="balance-chip" id="shop-balance">🪙 0 EBT</div>
+    <div class="card-list" id="shop-list"></div>
+    <button class="btn secondary" id="shop-back-btn">← Kembali</button>
+  </div>
+
+  <!-- DOMPET -->
+  <div id="wallet" class="screen hidden">
+    <h1 class="title" style="font-size:clamp(1.5rem,6vw,2.5rem)">👛 DOMPET</h1>
+    <div id="wallet-body" style="display:flex;flex-direction:column;gap:12px;align-items:center"></div>
+    <button class="btn secondary" id="wallet-back-btn">← Kembali</button>
+  </div>
+</div>
+<script>
+'use strict';
+/* =====================================================================
+   ELEBEAST: JUNGLE DASH — game endless runner 2D (canvas HTML5)
+   ---------------------------------------------------------------------
+   ALAMAT MINT TOKEN EBT (Solana devnet):
+*/
+const ELEBEAST_MINT = "EBT_MINT_PLACEHOLDER"; // <-- diganti alamat mint asli saat packaging
+/*
+   Catatan: sampai placeholder di atas diganti, fitur "Saldo EBT on-chain"
+   di layar Dompet tidak akan menampilkan angka yang benar.
+   ===================================================================== */
+
+// ---------- Konfigurasi game ----------
+const CFG = {
+  gravitasi: 2600,        // px/detik^2
+  lompatV: -980,          // kecepatan awal lompat
+  speedAwal: 340,         // px/detik
+  speedMaks: 900,
+  tambahSpeed: 14,        // px/detik per detik main
+  tanahY: 0.78,           // posisi tanah sebagai fraksi tinggi canvas
+  koinPerEBT: 1,          // 1 koin = 1 EBT (x2 jika item pengali)
+  bonusJarak: 50,         // tiap 50 meter = bonus EBT
+};
+
+// ---------- Kunci penyimpanan lokal ----------
+const LS = { ebt:'elebeast_ebt', shop:'elebeast_shop', high:'elebeast_high', mute:'elebeast_mute' };
+
+// =====================================================================
+// SUARA — semua efek dibuat prosedural via WebAudio API (tanpa file)
+// =====================================================================
+const Suara = {
+  ctx: null, bisu: localStorage.getItem(LS.mute) === '1',
+  pastikan() {
+    if (!this.ctx) { try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  nada(frek, dur, tipe, vol, geserKe) { // satu nada sederhana
+    if (this.bisu) return; this.pastikan(); if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = tipe || 'sine'; o.frequency.setValueAtTime(frek, t);
+    if (geserKe) o.frequency.exponentialRampToValueAtTime(geserKe, t + dur);
+    g.gain.setValueAtTime(vol || .18, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    o.connect(g); g.connect(this.ctx.destination);
+    o.start(t); o.stop(t + dur + .02);
+  },
+  lompat() { this.nada(300, .22, 'square', .12, 720); },           // nada naik
+  koin()   { this.nada(880, .09, 'sine', .16); setTimeout(()=>this.nada(1320,.14,'sine',.16), 70); },
+  tabrak() { // suara gaduh: gabungan nada rendah + derau
+    this.nada(160, .35, 'sawtooth', .2, 50);
+    if (this.bisu || !this.ctx) return;
+    const t = this.ctx.currentTime, len = this.ctx.sampleRate * .3;
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random()*2-1) * (1 - i/len);
+    const s = this.ctx.createBufferSource(); s.buffer = buf;
+    s.connect(this.ctx.destination); s.start(t);
+  },
+  klik()   { this.nada(520, .07, 'triangle', .14); },
+  beli()   { this.nada(660,.1,'triangle',.16); setTimeout(()=>this.nada(990,.16,'triangle',.16),90); },
+};
+
+// =====================================================================
+// CHROMA KEY — hapus latar magenta (#FF00FF) dari sprite, sekali saat load
+// =====================================================================
+function chromaKey(img, toleransi) {
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const x = c.getContext('2d');
+  x.drawImage(img, 0, 0);
+  const data = x.getImageData(0, 0, c.width, c.height), p = data.data;
+  const tol = toleransi || 70;
+  for (let i = 0; i < p.length; i += 4) {
+    // jarak dari magenta murni; piksel yang dekat dianggap latar -> transparan
+    const dr = p[i] - 255, dg = p[i+1] - 0, db = p[i+2] - 255;
+    if (Math.sqrt(dr*dr + dg*dg + db*db) < tol) p[i+3] = 0;
+  }
+  x.putImageData(data, 0, 0);
+  return c;
+}
+function muatGambar(src, chroma) {
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => res(chroma ? chromaKey(img) : img);
+    img.onerror = () => res(null); // aset rusak -> null, game tetap jalan (fallback digambar manual)
+    img.src = src;
+  });
+}
+
+// =====================================================================
+// LEDGER EBT IN-GAME (off-chain, tersimpan di localStorage)
+// =====================================================================
+const DompetGame = {
+  saldo() { return parseInt(localStorage.getItem(LS.ebt) || '0', 10) || 0; },
+  tambah(n) { const s = this.saldo() + n; localStorage.setItem(LS.ebt, String(s)); return s; },
+  kurang(n) {
+    const s = this.saldo();
+    if (s < n) return false;
+    localStorage.setItem(LS.ebt, String(s - n)); return true;
+  },
+};
+
+// =====================================================================
+// TOKO — item permanen, tersimpan di localStorage
+// =====================================================================
+const BARANG_TOKO = [
+  { id:'skin_api',  nama:'🔥 Skin Api',    harga:300,  desc:'Gajah merah menyala (hue-rotate). Pilih di toko.' },
+  { id:'skin_hutan',nama:'🌿 Skin Hutan',  harga:300,  desc:'Gajah hijau hutan (hue-rotate). Pilih di toko.' },
+  { id:'skin_emas', nama:'✨ Skin Emas',   harga:600,  desc:'Gajah emas berkilau (hue-rotate). Pilih di toko.' },
+  { id:'magnet',    nama:'🧲 Magnet Koin', harga:500,  desc:'Menarik koin dari jarak jauh setiap lari.' },
+  { id:'shield',    nama:'🛡️ Perisai',     harga:500,  desc:'Selamat 1x dari tabrakan di setiap lari.' },
+  { id:'pengali',   nama:'💰 EBT x2',      harga:1000, desc:'Semua EBT dari koin & bonus jarak jadi 2x lipat, permanen.' },
+];
+const HUE_SKIN = { none:0, skin_api:150, skin_hutan:95, skin_emas:35 }; // derajat hue-rotate
+const Toko = {
+  data() {
+    try { return JSON.parse(localStorage.getItem(LS.shop) || '{}'); }
+    catch(e){ return {}; }
+  },
+  simpan(d) { localStorage.setItem(LS.shop, JSON.stringify(d)); },
+  punya(id) { return !!this.data()[id]; },
+  beli(id) {
+    const barang = BARANG_TOKO.find(b => b.id === id);
+    if (!barang || this.punya(id)) return false;
+    if (!DompetGame.kurang(barang.harga)) return false;
+    const d = this.data(); d[id] = true; this.simpan(d);
+    Suara.beli(); return true;
+  },
+  skinAktif() { return this.data().skinAktif || 'none'; },
+  pilihSkin(id) { const d = this.data(); d.skinAktif = id; this.simpan(d); },
+  pengali() { return this.punya('pengali') ? 2 : 1; },
+};
+
+// =====================================================================
+// MESIN GAME
+// =====================================================================
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+let W = 960, H = 540, DPR = 1;
+
+function aturUkuran() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', aturUkuran);
+aturUkuran();
+
+const ASET = {}; // hasil load: hero, elephant, rock, bird, coin, bg_far, bg_near
+async function muatSemuaAset() {
+  const [hero, elephant, rock, bird, coin, bg_far, bg_near] = await Promise.all([
+    muatGambar('assets/hero.png', false),
+    muatGambar('assets/elephant.png', true),
+    muatGambar('assets/rock.png', true),
+    muatGambar('assets/bird.png', true),
+    muatGambar('assets/coin.png', true),
+    muatGambar('assets/bg_far.png', false),
+    muatGambar('assets/bg_near.png', false),
+  ]);
+  Object.assign(ASET, { hero, elephant, rock, bird, coin, bg_far, bg_near });
+}
+
+// ---------- Status game ----------
+const G = {
+  status: 'menu',       // menu | main | jeda | over
+  jarak: 0,             // px total -> dikonversi ke meter
+  speed: CFG.speedAwal,
+  koinRun: 0,
+  perisai: false,
+  waktu: 0,
+};
+const pemain = { x: 0, y: 0, vy: 0, lompatan: 0, tundukT: 0, lebar: 90, tinggi: 70 };
+let rintangan = [], koinList = [], partikel = [];
+let parFar = 0, parNear = 0, timerSpawn = 0, timerKoin = 0, goyang = 0;
+
+function tanah() { return H * CFG.tanahY; }
+
+function mulaiMain() {
+  G.status = 'main'; G.jarak = 0; G.speed = CFG.speedAwal;
+  G.koinRun = 0; G.perisai = Toko.punya('shield'); G.waktu = 0;
+  rintangan = []; koinList = []; partikel = [];
+  parFar = 0; parNear = 0; timerSpawn = 1.2; timerKoin = 0.8; goyang = 0;
+  pemain.y = tanah(); pemain.vy = 0; pemain.lompatan = 0; pemain.tundukT = 0;
+  pemain.x = Math.max(90, W * 0.14);
+  // skala sprite mengikuti tinggi layar (mobile lebih kecil tapi proporsional)
+  const s = Math.max(.55, Math.min(1.1, H / 640));
+  pemain.lebar = 96 * s; pemain.tinggi = 74 * s;
+  tampilkanLayar(null); document.getElementById('hud').classList.remove('hidden');
+  document.body.classList.add('playing');
+  perbaruiHUD();
+}
+
+function lompat() {
+  if (G.status !== 'main') return;
+  Suara.pastikan();
+  if (pemain.lompatan < 2) {           // double-jump
+    pemain.vy = CFG.lompatV * (H / 640 < 1 ? .92 : 1);
+    pemain.lompatan++; pemain.tundukT = 0;
+    Suara.lompat();
+  }
+}
+function tunduk() {
+  if (G.status !== 'main') return;
+  if (pemain.y >= tanah() - 1) pemain.tundukT = .55; // hanya efektif saat di tanah
+}
+
+// ---------- Spawner ----------
+function acak(a, b) { return a + Math.random() * (b - a); }
+function spawnRintangan() {
+  const t = tanah();
+  const r = Math.random();
+  if (r < .55) { // BATU di tanah — harus dilompati
+    const w = acak(46, 78), h = acak(52, 92);
+    rintangan.push({ jenis:'batu', x: W + 60, y: t - h, w, h });
+  } else {       // BURUNG terbang — atur timing
+    // burung rendah: tunduk / jangan lompat | burung tinggi: jangan lompat
+    const rendah = Math.random() < .5;
+    const h = acak(40, 56), w = h * 1.5;
+    const y = rendah ? t - acak(56, 78) : t - acak(120, 160);
+    rintangan.push({ jenis:'burung', x: W + 60, y, w, h, fase: Math.random() * 6 });
+  }
+}
+function spawnKoin() {
+  const t = tanah();
+  const pola = Math.random();
+  const n = 4 + Math.floor(Math.random() * 4);
+  const yDasar = pola < .5 ? t - acak(70, 110) : t - acak(150, 210); // garis / busur lompat
+  for (let i = 0; i < n; i++) {
+    const yy = pola < .5 ? yDasar : yDasar - Math.sin((i / (n - 1)) * Math.PI) * 70;
+    koinList.push({ x: W + 60 + i * 52, y: yy, r: 17, diambil: false, putar: Math.random() * 6 });
+  }
+}
+
+// ---------- Update ----------
+function update(dt) {
+  G.waktu += dt;
+  G.speed = Math.min(CFG.speedMaks, CFG.speedAwal + G.waktu * CFG.tambahSpeed);
+  G.jarak += G.speed * dt;
+  parFar += G.speed * dt * .18;
+  parNear += G.speed * dt * .55;
+  if (goyang > 0) goyang -= dt;
+
+  // fisika pemain
+  pemain.vy += CFG.gravitasi * dt;
+  pemain.y += pemain.vy * dt;
+  if (pemain.y >= tanah()) { pemain.y = tanah(); pemain.vy = 0; pemain.lompatan = 0; }
+  if (pemain.tundukT > 0) pemain.tundukT -= dt;
+
+  // spawn dengan interval yang makin rapat saat cepat
+  timerSpawn -= dt;
+  if (timerSpawn <= 0) {
+    spawnRintangan();
+    timerSpawn = acak(.9, 1.7) * (CFG.speedAwal / G.speed) + .35;
+    if (Math.random() < .3) spawnKoin(); // kadang koin bareng rintangan
+  }
+  timerKoin -= dt;
+  if (timerKoin <= 0) { spawnKoin(); timerKoin = acak(1.6, 3.2); }
+
+  const magnet = Toko.punya('magnet');
+  const px = pemain.x, py = pemain.y - pemain.tinggi / 2;
+
+  // koin
+  for (const k of koinList) {
+    k.x -= G.speed * dt; k.putar += dt * 6;
+    if (magnet && !k.diambil) { // magnet: tarik koin dari jauh
+      const dx = px - k.x, dy = py - k.y, d = Math.hypot(dx, dy);
+      if (d < 240) { k.x += (dx / d) * 620 * dt; k.y += (dy / d) * 620 * dt; }
+    }
+    const dx = k.x - px, dy = k.y - py;
+    if (!k.diambil && Math.hypot(dx, dy) < 58) {
+      k.diambil = true; G.koinRun++; Suara.koin();
+      partikel.push({ x: k.x, y: k.y, vx: acak(-60, 60), vy: acak(-160, -40), t: .5, emas: true });
+    }
+  }
+  koinList = koinList.filter(k => !k.diambil && k.x > -60);
+
+  // rintangan + tabrakan
+  const ph = pemain.tundukT > 0 ? pemain.tinggi * .45 : pemain.tinggi; // hitbox menunduk
+  const pw = pemain.lebar * .72;
+  const kotakP = { x: pemain.x - pw / 2, y: pemain.y - ph, w: pw, h: ph };
+  for (const r of rintangan) {
+    r.x -= G.speed * dt;
+    if (r.jenis === 'burung') r.y += Math.sin(G.waktu * 8 + r.fase) * 30 * dt; // terbang naik-turun
+    const margin = 8; // sedikit pemaaf
+    if (r.x < kotakP.x + kotakP.w - margin && r.x + r.w > kotakP.x + margin &&
+        r.y < kotakP.y + kotakP.h - margin && r.y + r.h > kotakP.y + margin) {
+      tabrakan(r); break;
+    }
+  }
+  rintangan = rintangan.filter(r => r.x > -120);
+
+  // partikel
+  for (const p of partikel) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 500 * dt; p.t -= dt; }
+  partikel = partikel.filter(p => p.t > 0);
+
+  perbaruiHUD();
+}
+
+function tabrakan(r) {
+  if (G.perisai) { // perisai menyerap 1x tabrakan
+    G.perisai = false;
+    partikel.push({ x: pemain.x, y: pemain.y - 40, vx: 0, vy: -60, t: .8, emas: false });
+    rintangan = rintangan.filter(o => o !== r);
+    goyang = .25; Suara.tabrak();
+    return;
+  }
+  goyang = .5; Suara.tabrak();
+  akhiriMain();
+}
+
+function akhiriMain() {
+  G.status = 'over';
+  const meter = Math.floor(G.jarak / 50);
+  const mult = Toko.pengali();
+  const bonus = Math.floor(meter / CFG.bonusJarak) * mult;
+  const ebtKoin = G.koinRun * CFG.koinPerEBT * mult;
+  const total = ebtKoin + bonus;
+  DompetGame.tambah(total);
+  const rekor = parseInt(localStorage.getItem(LS.high) || '0', 10);
+  const rekorBaru = meter > rekor;
+  if (rekorBaru) localStorage.setItem(LS.high, String(meter));
+  document.getElementById('hud').classList.add('hidden');
+  document.body.classList.remove('playing');
+  document.getElementById('over-score').textContent = '🏃 ' + meter + ' m' + (rekorBaru ? ' — 🏆 REKOR BARU!' : '');
+  document.getElementById('over-ebt').textContent = '🪙 +' + total + ' EBT';
+  document.getElementById('over-detail').textContent =
+    'Rincian: ' + G.koinRun + ' koin → ' + ebtKoin + ' EBT, bonus jarak (' + meter + ' m) → ' + bonus + ' EBT.' +
+    (mult > 1 ? ' (sudah x2 dari item EBT x2)' : '');
+  tampilkanLayar('over');
+  segarkanSaldo();
+}
+
+// ---------- Render ----------
+function gambarLatar(img, par, alpha) {
+  if (!img) { // fallback: gradasi bila aset gagal load
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#1c3a24'); g.addColorStop(1, '#0b1a10');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); return;
+  }
+  const skala = H / img.height;
+  const lw = img.width * skala;
+  let off = -(par % lw); if (off > 0) off -= lw;
+  ctx.globalAlpha = alpha == null ? 1 : alpha;
+  for (let x = off; x < W; x += lw) ctx.drawImage(img, x, 0, lw, H);
+  ctx.globalAlpha = 1;
+}
+
+function render() {
+  ctx.save();
+  if (goyang > 0) ctx.translate(acak(-6, 6) * goyang * 2, acak(-6, 6) * goyang * 2);
+  gambarLatar(ASET.bg_far, parFar);
+  gambarLatar(ASET.bg_near, parNear, .9);
+
+  // tanah
+  const t = tanah();
+  ctx.fillStyle = '#2c1f10';
+  ctx.fillRect(0, t, W, H - t);
+  ctx.fillStyle = '#3f8f3a';
+  ctx.fillRect(0, t, W, 10);
+
+  // koin (clip lingkaran sesuai spesifikasi)
+  for (const k of koinList) {
+    const squish = Math.abs(Math.cos(k.putar)); // efek putar: pipih-melebar
+    ctx.save();
+    ctx.beginPath(); ctx.arc(k.x, k.y, k.r, 0, 7); ctx.clip();
+    if (ASET.coin) ctx.drawImage(ASET.coin, k.x - k.r, k.y - k.r, k.r * 2 * (.4 + .6 * squish), k.r * 2);
+    else { ctx.fillStyle = '#ffd23f'; ctx.fillRect(k.x - k.r, k.y - k.r, k.r * 2, k.r * 2); }
+    ctx.restore();
+  }
+
+  // rintangan
+  for (const r of rintangan) {
+    if (r.jenis === 'batu') {
+      if (ASET.rock) ctx.drawImage(ASET.rock, r.x, r.y, r.w, r.h);
+      else { ctx.fillStyle = '#777'; ctx.fillRect(r.x, r.y, r.w, r.h); }
+    } else {
+      const kepak = Math.sin(G.waktu * 14 + r.fase) * 4; // sayap mengepak
+      if (ASET.bird) ctx.drawImage(ASET.bird, r.x, r.y + kepak, r.w, r.h);
+      else { ctx.fillStyle = '#a55'; ctx.fillRect(r.x, r.y + kepak, r.w, r.h); }
+    }
+  }
+
+  // pemain: gajah (dengan skin hue-rotate bila dibeli)
+  const tunduk = pemain.tundukT > 0;
+  const ph = tunduk ? pemain.tinggi * .62 : pemain.tinggi;
+  const hue = HUE_SKIN[Toko.skinAktif()] || 0;
+  ctx.save();
+  if (hue) { try { ctx.filter = 'hue-rotate(' + hue + 'deg) saturate(1.2)'; } catch (e) {} }
+  if (ASET.elephant) ctx.drawImage(ASET.elephant, pemain.x - pemain.lebar / 2, pemain.y - ph, pemain.lebar, ph);
+  else { ctx.fillStyle = '#8a9aa5'; ctx.fillRect(pemain.x - pemain.lebar / 2, pemain.y - ph, pemain.lebar, ph); }
+  ctx.restore();
+
+  // cincin perisai
+  if (G.perisai) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(125,249,255,' + (0.6 + 0.4 * Math.sin(G.waktu * 6)) + ')';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(pemain.x, pemain.y - pemain.tinggi / 2, pemain.lebar * .75, 0, 7);
+    ctx.stroke(); ctx.restore();
+  }
+
+  // partikel
+  for (const p of partikel) {
+    ctx.globalAlpha = Math.max(0, p.t * 2);
+    ctx.fillStyle = p.emas ? '#ffd23f' : '#7df9ff';
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.emas ? 5 : 9, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ---------- Loop utama ----------
+let terakhir = 0;
+function loop(ts) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(.05, (ts - terakhir) / 1000 || 0);
+  terakhir = ts;
+  if (G.status === 'main') update(dt);
+  if (G.status === 'main' || G.status === 'jeda' || G.status === 'over') render();
+}
+
+// =====================================================================
+// INPUT — keyboard, mouse, sentuh
+// =====================================================================
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+    e.preventDefault();
+    if (G.status === 'main') lompat();
+    else if (G.status === 'menu') mulaiMain();
+    else if (G.status === 'over') mulaiMain();
+  } else if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+    e.preventDefault(); tunduk();
+  } else if (e.code === 'KeyP' || e.code === 'Escape') {
+    if (G.status === 'main') jedaMain(); else if (G.status === 'jeda') lanjutMain();
+  } else if (e.code === 'KeyM') { alihkanBisu(); }
+});
+// sentuh = lompat (sentuh di mana saja di area canvas saat bermain)
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  document.body.classList.add('touch');
+  if (G.status === 'main') { Suara.pastikan(); lompat(); }
+}, { passive: false });
+canvas.addEventListener('mousedown', () => {
+  if (G.status === 'main') { Suara.pastikan(); lompat(); }
+});
+document.getElementById('duck-btn').addEventListener('touchstart', (e) => {
+  e.preventDefault(); e.stopPropagation(); tunduk();
+}, { passive: false });
+document.getElementById('duck-btn').addEventListener('mousedown', (e) => {
+  e.stopPropagation(); tunduk();
+});
+
+// =====================================================================
+// LAYAR & HUD
+// =====================================================================
+const LAYAR = ['menu', 'over', 'pause', 'shop', 'wallet'];
+function tampilkanLayar(nama) {
+  for (const l of LAYAR) document.getElementById(l).classList.toggle('hidden', l !== nama);
+  if (nama === 'menu') segarkanSaldo();
+  if (nama === 'shop') renderToko();
+  if (nama === 'wallet') renderDompet();
+}
+function segarkanSaldo() {
+  const s = DompetGame.saldo();
+  document.getElementById('menu-balance').textContent = '🪙 ' + s + ' EBT';
+  document.getElementById('shop-balance').textContent = '🪙 ' + s + ' EBT';
+  document.getElementById('menu-high').textContent = '🏆 Rekor: ' + (localStorage.getItem(LS.high) || '0') + ' m';
+}
+function perbaruiHUD() {
+  document.getElementById('hud-score').textContent = Math.floor(G.jarak / 50) + ' m';
+  document.getElementById('hud-ebt').textContent = '🪙 ' + G.koinRun + ' EBT';
+  document.getElementById('hud-shield').classList.toggle('hidden', !G.perisai);
+}
+function jedaMain() {
+  if (G.status !== 'main') return;
+  G.status = 'jeda'; tampilkanLayar('pause');
+}
+function lanjutMain() {
+  if (G.status !== 'jeda') return;
+  G.status = 'main'; tampilkanLayar(null); terakhir = performance.now();
+}
+function alihkanBisu() {
+  Suara.bisu = !Suara.bisu;
+  localStorage.setItem(LS.mute, Suara.bisu ? '1' : '0');
+  document.getElementById('mute-btn').textContent = Suara.bisu ? '🔇' : '🔊';
+}
+function klik(id, fn) {
+  document.getElementById(id).addEventListener('click', () => { Suara.pastikan(); Suara.klik(); fn(); });
+}
+
+function keMenu() {
+  G.status = 'menu';
+  document.getElementById('hud').classList.add('hidden');
+  document.body.classList.remove('playing');
+  tampilkanLayar('menu');
+}
+// tombol-tombol
+klik('play-btn', mulaiMain);
+klik('retry-btn', mulaiMain);
+klik('over-menu-btn', keMenu);
+klik('shop-btn', () => tampilkanLayar('shop'));
+klik('wallet-btn', () => tampilkanLayar('wallet'));
+klik('shop-back-btn', () => tampilkanLayar('menu'));
+klik('wallet-back-btn', () => tampilkanLayar('menu'));
+klik('pause-btn', jedaMain);
+klik('resume-btn', lanjutMain);
+klik('pause-menu-btn', keMenu);
+klik('mute-btn', alihkanBisu);
+
+// =====================================================================
+// TOKO — render daftar barang
+// =====================================================================
+function renderToko() {
+  segarkanSaldo();
+  const list = document.getElementById('shop-list');
+  list.innerHTML = '';
+  const skinAktif = Toko.skinAktif();
+  for (const b of BARANG_TOKO) {
+    const div = document.createElement('div');
+    div.className = 'shop-item';
+    const info = document.createElement('div');
+    info.className = 'info';
+    info.innerHTML = '<b>' + b.nama + '</b><p>' + b.desc + '</p>';
+    const btn = document.createElement('button');
+    btn.className = 'mini-btn';
+    const adalahSkin = b.id.indexOf('skin_') === 0;
+    if (Toko.punya(b.id)) {
+      if (adalahSkin) {
+        if (skinAktif === b.id) { btn.textContent = '✓ Dipakai'; btn.classList.add('owned'); btn.disabled = true; }
+        else { btn.textContent = 'Pakai'; btn.onclick = () => { Toko.pilihSkin(b.id); Suara.klik(); renderToko(); }; }
+      } else { btn.textContent = '✓ Milikmu'; btn.classList.add('owned'); btn.disabled = true; }
+    } else {
+      btn.textContent = 'Beli · ' + b.harga + ' EBT';
+      btn.onclick = () => {
+        if (Toko.beli(b.id)) { renderToko(); }
+        else { alert('EBT tidak cukup! Main dan kumpulkan koin dulu. 🪙'); }
+      };
+    }
+    div.appendChild(info); div.appendChild(btn);
+    list.appendChild(div);
+  }
+  // opsi kembali ke skin bawaan
+  if (skinAktif !== 'none') {
+    const div = document.createElement('div');
+    div.className = 'shop-item';
+    div.innerHTML = '<div class="info"><b>🐘 Skin Bawaan</b><p>Kembali ke warna gajah asli.</p></div>';
+    const btn = document.createElement('button');
+    btn.className = 'mini-btn'; btn.textContent = 'Pakai';
+    btn.onclick = () => { Toko.pilihSkin('none'); Suara.klik(); renderToko(); };
+    div.appendChild(btn); list.appendChild(div);
+  }
+}
+
+// =====================================================================
+// DOMPET — koneksi Phantom (devnet) + baca saldo EBT on-chain (read-only)
+// =====================================================================
+const DompetChain = {
+  provider: null, pubkey: null,
+  pendek(addr) { return addr.slice(0, 4) + '...' + addr.slice(-4); },
+  hubungkan() {
+    // Deteksi provider Phantom yang di-inject browser
+    const p = window.phantom && window.phantom.solana;
+    if (!p || !p.isPhantom) {
+      renderDompetPesan(
+        '👻 Phantom wallet tidak terdeteksi.<br><br>' +
+        'Install dulu ekstensi <b>Phantom</b> di browser kamu, lalu buka halaman ini lagi.<br>' +
+        '<a class="explorer" href="https://phantom.app/" target="_blank" rel="noopener">phantom.app →</a>'
+      );
+      return;
+    }
+    this.provider = p;
+    p.connect({ onlyIfTrusted: false })
+      .then((resp) => {
+        this.pubkey = resp.publicKey.toString();
+        renderDompet();
+        this.muatSaldo();
+      })
+      .catch(() => renderDompetPesan('❌ Koneksi dibatalkan. Coba lagi.'));
+  },
+  putuskan() {
+    if (this.provider) { try { this.provider.disconnect(); } catch (e) {} }
+    this.provider = null; this.pubkey = null; renderDompet();
+  },
+  muatSaldo() {
+    const el = document.getElementById('chain-ebt');
+    if (!el) return;
+    if (typeof window.solanaWeb3 === 'undefined') {
+      el.textContent = '⚠️ Library Solana gagal dimuat (butuh internet untuk CDN).';
+      return;
+    }
+    if (ELEBEAST_MINT === 'EBT_MINT_PLACEHOLDER' || !ELEBEAST_MINT) {
+      el.textContent = '⏳ Alamat mint EBT belum dipasang (masih placeholder).';
+      return;
+    }
+    el.textContent = '⏳ Memuat saldo...';
+    try {
+      const conn = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
+      const mint = new solanaWeb3.PublicKey(ELEBEAST_MINT);
+      const owner = new solanaWeb3.PublicKey(this.pubkey);
+      conn.getParsedTokenAccountsByOwner(owner, { mint })
+        .then((res) => {
+          let total = 0;
+          for (const a of res.value) {
+            const info = a.account.data.parsed.info;
+            total += parseFloat(info.tokenAmount.uiAmount || 0);
+          }
+          el.textContent = '🪙 ' + total + ' EBT (devnet)';
+        })
+        .catch(() => { el.textContent = '⚠️ Gagal membaca saldo. Cek koneksi internet.'; });
+    } catch (e) { el.textContent = '⚠️ Alamat mint tidak valid.'; }
+  },
+};
+
+function renderDompet() {
+  const body = document.getElementById('wallet-body');
+  body.innerHTML = '';
+  if (!DompetChain.pubkey) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'Hubungkan Phantom wallet (jaringan devnet) untuk melihat saldo EBT on-chain kamu.';
+    const btn = document.createElement('button');
+    btn.className = 'btn'; btn.textContent = '🔗 Hubungkan Wallet';
+    btn.onclick = () => { Suara.klik(); DompetChain.hubungkan(); };
+    body.appendChild(p); body.appendChild(btn);
+  } else {
+    const addr = document.createElement('div');
+    addr.className = 'addr';
+    addr.textContent = DompetChain.pendek(DompetChain.pubkey);
+    addr.title = DompetChain.pubkey;
+    const saldo = document.createElement('div');
+    saldo.className = 'balance-chip'; saldo.id = 'chain-ebt';
+    saldo.textContent = '⏳ Memuat saldo...';
+    const link = document.createElement('a');
+    link.className = 'explorer'; link.target = '_blank'; link.rel = 'noopener';
+    link.href = 'https://explorer.solana.com/address/' + ELEBEAST_MINT + '?cluster=devnet';
+    link.textContent = '🔎 Lihat token di Explorer (devnet)';
+    const note = document.createElement('p');
+    note.className = 'warn';
+    note.textContent = 'Saldo on-chain di atas hanya untuk dibaca (read-only). ' +
+      'Klaim EBT dari game ke wallet (on-chain penuh) butuh server — lihat ARSITEKTUR.md.';
+    const btn = document.createElement('button');
+    btn.className = 'mini-btn'; btn.textContent = 'Putuskan';
+    btn.onclick = () => { Suara.klik(); DompetChain.putuskan(); };
+    body.appendChild(addr); body.appendChild(saldo); body.appendChild(link);
+    body.appendChild(note); body.appendChild(btn);
+    DompetChain.muatSaldo();
+  }
+  // saldo game (off-chain) selalu ditampilkan
+  const g = document.createElement('div');
+  g.className = 'balance-chip';
+  g.textContent = '🎮 Saldo game: ' + DompetGame.saldo() + ' EBT';
+  body.appendChild(g);
+}
+function renderDompetPesan(html) {
+  const body = document.getElementById('wallet-body');
+  body.innerHTML = '<p class="hint">' + html + '</p>';
+  const g = document.createElement('div');
+  g.className = 'balance-chip';
+  g.textContent = '🎮 Saldo game: ' + DompetGame.saldo() + ' EBT';
+  body.appendChild(g);
+}
+
+// =====================================================================
+// INISIALISASI
+// =====================================================================
+document.getElementById('mute-btn').textContent = Suara.bisu ? '🔇' : '🔊';
+document.getElementById('menu-balance').textContent = '🪙 ' + DompetGame.saldo() + ' EBT';
+// tampilkan hero art di menu bila berhasil dimuat
+muatSemuaAset().then(() => {
+  if (ASET.hero) document.getElementById('hero-img').src = 'assets/hero.png';
+  requestAnimationFrame(loop);
+});
+tampilkanLayar('menu');
+</script>
+</body>
+</html>
