@@ -43,3 +43,9 @@ Token crypto **EBT** + game web **Elebeast: Jungle Dash**. Semua keputusan kreat
 2. Patch `ELEBEAST_MINT` di game + artifact (ganti `EBT_MINT_PLACEHOLDER`).
 3. Uji penuh di devnet: main, beli item, hubungkan Phantom devnet, terima EBT uji.
 4. Mainnet (nanti, atas perintah user): buat keypair BARU milik user (jangan pakai key devnet!), isi ±0,05 SOL asli, jalankan ulang script dengan `--url mainnet-beta`, pasang metadata permanen (Arweave/IPFS — URL muse.ai bisa kedaluwarsa), umumkan alamat mint resmi, pertimbangkan multisig Squads untuk mint authority.
+
+## Update 2026-10-09 — token live, game diperbaiki
+- **Token EBT LIVE di devnet**: mint `STP2Vp77b8hSaeiHbaSGp2vFS9Y2szSk4mc4dnT4dd5`, supply 1.000.000 (9 desimal), metadata on-chain terverifikasi (Elebeast/EBT + logo). Mint & freeze authority dipegang treasury (retained, tidak di-renounce). Script `03b-finish-token.mjs` dipakai karena `03` gagal konfirmasi (websocket rusak lewat proxy egress) — solusinya konfirmasi via REST polling; pola ini dipakai juga di `06-mint-to.mjs`.
+- **1000 EBT** sudah di-mint ke wallet user `CfHtdHrxRPR3r5WgWiuhTMUSmVY2MwFG3iN7GzNGheqc` (devnet).
+- **Game**: `game-dist/elebeast-jungle-dash.html` kini disinkron dari web artifact live (1,4 MB, 7 aset di-inline). Perbaikan: tombol Main langsung mulai tanpa menunggu aset; sprite PNG transparan ringan + fallback; seluruh UI diganti ke **Bahasa Inggris** (09 Okt).
+- File baru di repo: `mint.txt`, `token.json`, `scripts/03b-finish-token.mjs`, `scripts/06-mint-to.mjs`.

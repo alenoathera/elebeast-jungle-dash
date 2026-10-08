@@ -144,7 +144,7 @@
    ---------------------------------------------------------------------
    ALAMAT MINT TOKEN EBT (Solana devnet):
 */
-const ELEBEAST_MINT = "EBT_MINT_PLACEHOLDER"; // <-- diganti alamat mint asli saat packaging
+const ELEBEAST_MINT = "STP2Vp77b8hSaeiHbaSGp2vFS9Y2szSk4mc4dnT4dd5"; // <-- diganti alamat mint asli saat packaging
 /*
    Catatan: sampai placeholder di atas diganti, fitur "Saldo EBT on-chain"
    di layar Dompet tidak akan menampilkan angka yang benar.
@@ -730,7 +730,7 @@ const DompetChain = {
       el.textContent = '⚠️ Library Solana gagal dimuat (butuh internet untuk CDN).';
       return;
     }
-    if (ELEBEAST_MINT === 'EBT_MINT_PLACEHOLDER' || !ELEBEAST_MINT) {
+    if (ELEBEAST_MINT === 'STP2Vp77b8hSaeiHbaSGp2vFS9Y2szSk4mc4dnT4dd5' || !ELEBEAST_MINT) {
       el.textContent = '⏳ Alamat mint EBT belum dipasang (masih placeholder).';
       return;
     }
